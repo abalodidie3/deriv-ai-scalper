@@ -156,7 +156,7 @@ const symbol=document.getElementById("market").value;
 
 const granularity=Number(document.getElementById("timeframe").value);
 
-socket=new WebSocket("wss://ws.derivws.com/websockets/v3/websockets?app_id=1089");
+socket=new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
 
 socket.onopen=()=>{
 
