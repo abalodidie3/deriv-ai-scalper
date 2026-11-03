@@ -1,0 +1,333 @@
+
+
+<!DOCTYPE html>
+
+<html lang="fr">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>DERIV AI SCALPER</title>
+
+<style>
+
+*{box-sizing:border-box}
+
+body{margin:0;background:#0b1220;color:#fff;font-family:Arial,sans-serif;padding:18px}
+
+header{text-align:center;padding:20px 0}
+
+h1{color:#54a5ff;font-size:25px}
+
+p{color:#aab8cc}
+
+.card{background:#172438;border:1px solid #30435d;border-radius:14px;padding:18px;margin:15px 0}
+
+label{display:block;margin:12px 0 6px;color:#aab8cc}
+
+select,button{width:100%;padding:13px;border-radius:9px;border:0;font-size:15px}
+
+select{background:#263a54;color:white}
+
+button{background:#2675cf;color:white;font-weight:bold;margin-top:12px}
+
+.price{font-size:28px;font-weight:bold;color:#54a5ff}
+
+.signal{font-size:25px;font-weight:bold}
+
+.green{color:#35d69b}
+
+.red{color:#ff6878}
+
+.warning{font-size:12px;line-height:1.6;color:#f2cb83}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>DERIV AI SCALPER</h1>
+
+<p>Intelligent Trading Signal System</p>
+
+</header>
+
+<div class="card">
+
+<h3>Configuration du marché</h3>
+
+<label>Indice synthétique</label>
+
+<select id="market">
+
+<option value="R_75">Volatility 75 Index</option>
+
+<option value="R_100">Volatility 100 Index</option>
+
+<option value="R_50">Volatility 50 Index</option>
+
+</select>
+
+<label>Unité d'analyse</label>
+
+<select id="timeframe">
+
+<option value="60">M1</option>
+
+<option value="300">M5</option>
+
+</select>
+
+<button onclick="connectMarket()">Connecter au marché</button>
+
+</div>
+
+<div class="card">
+
+<h3>Connexion</h3>
+
+<p id="connection">Déconnecté</p>
+
+<h3>Dernier cours</h3>
+
+<div class="price" id="price">---</div>
+
+</div>
+
+<div class="card">
+
+<h3>Analyse technique</h3>
+
+<p>RSI (14)</p>
+
+<div id="rsi">---</div>
+
+<p>EMA 9 / EMA 21</p>
+
+<div id="ema">---</div>
+
+<p>Signal détecté</p>
+
+<div class="signal" id="signal">NEUTRE</div>
+
+<p id="reason">En attente des cotations.</p>
+
+</div>
+
+<div class="card">
+
+<h3>Confirmation du trade</h3>
+
+<p>Aucune transaction ne sera exécutée automatiquement.</p>
+
+<button disabled>Confirmer un trade (bientôt disponible)</button>
+
+<p class="warning">
+
+Prototype expérimental. Les signaux ne garantissent aucun bénéfice.
+
+Utilise d'abord un compte démo.
+
+</p>
+
+</div>
+
+<script>
+
+let socket;
+
+let candles=[];
+
+function connectMarket(){
+
+if(socket) socket.close();
+
+candles=[];
+
+document.getElementById("connection").textContent="Connexion...";
+
+const symbol=document.getElementById("market").value;
+
+const granularity=Number(document.getElementById("timeframe").value);
+
+socket=new WebSocket("wss://ws.derivws.com/websockets/v3/websockets?app_id=1089");
+
+socket.onopen=()=>{
+
+document.getElementById("connection").textContent="Connecté";
+
+socket.send(JSON.stringify({
+
+ticks_history:symbol,
+
+count:250,
+
+end:"latest",
+
+style:"candles",
+
+granularity:granularity
+
+}));
+
+};
+
+socket.onmessage=(event)=>{
+
+const data=JSON.parse(event.data);
+
+if(data.error){
+
+document.getElementById("connection").textContent="Erreur : "+data.error.message;
+
+return;
+
+}
+
+if(data.candles){
+
+candles=data.candles.map(c=>({
+
+open:+c.open,close:+c.close,epoch:+c.epoch
+
+}));
+
+analyse();
+
+socket.send(JSON.stringify({ticks:symbol,subscribe:1}));
+
+}
+
+if(data.tick){
+
+document.getElementById("price").textContent=Number(data.tick.quote).toFixed(2);
+
+}
+
+if(data.ohlc){
+
+const c=data.ohlc;
+
+const item={open:+c.open,close:+c.close,epoch:+c.open_time};
+
+const i=candles.findIndex(x=>x.epoch===item.epoch);
+
+if(i>=0)candles[i]=item;
+
+else candles.push(item);
+
+analyse();
+
+}
+
+};
+
+socket.onclose=()=>{
+
+document.getElementById("connection").textContent="Déconnecté";
+
+};
+
+socket.onerror=()=>{
+
+document.getElementById("connection").textContent="Erreur réseau";
+
+};
+
+}
+
+function ema(values,n){
+
+if(values.length<n)return null;
+
+let result=values.slice(0,n).reduce((a,b)=>a+b,0)/n;
+
+const k=2/(n+1);
+
+for(let i=n;i<values.length;i++)
+
+result=values[i]*k+result*(1-k);
+
+return result;
+
+}
+
+function rsi(values,n=14){
+
+if(values.length<n+1)return null;
+
+let gain=0,loss=0;
+
+for(let i=values.length-n;i<values.length;i++){
+
+let d=values[i]-values[i-1];
+
+if(d>0)gain+=d;
+
+else loss-=d;
+
+}
+
+if(loss===0)return 100;
+
+return 100-100/(1+gain/loss);
+
+}
+
+function analyse(){
+
+if(candles.length<35)return;
+
+const values=candles.map(c=>c.close);
+
+const e9=ema(values,9);
+
+const e21=ema(values,21);
+
+const rv=rsi(values);
+
+document.getElementById("rsi").textContent=rv.toFixed(2);
+
+document.getElementById("ema").textContent=e9.toFixed(2)+" / "+e21.toFixed(2);
+
+let signal="NEUTRE";
+
+let reason="Aucune configuration confirmée.";
+
+if(e9>e21&&rv>=52&&rv<=70){
+
+signal="BUY";
+
+reason="Tendance haussière détectée. Vérifier avant toute décision.";
+
+}
+
+if(e9<e21&&rv<=48&&rv>=30){
+
+signal="SELL";
+
+reason="Tendance baissière détectée. Vérifier avant toute décision.";
+
+}
+
+const el=document.getElementById("signal");
+
+el.textContent=signal;
+
+el.className="signal "+(signal==="BUY"?"green":signal==="SELL"?"red":"");
+
+document.getElementById("reason").textContent=reason;
+
+}
+
+</script>
+
+</body>
+
+</html>
