@@ -225,8 +225,12 @@ ws.onerror=()=>{
 if(id===generation)status("Erreur réseau","red");
 };
 
-ws.onclose=()=>{
-if(id===generation)status("Déconnecté","red");
+ws.onclose=(event)=>{
+if(id===generation){
+status("Déconnecté - Code : "+event.code,"red");
+document.getElementById("reason").textContent=
+"Motif : "+(event.reason||"Aucun motif communiqué");
+}
 };
 }
 
