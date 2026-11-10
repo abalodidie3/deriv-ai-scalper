@@ -65,7 +65,7 @@ li{margin:4px 0;font-size:.9rem}
 <p class="n"><b>Méthode :</b> le score combine tendance (EMA 20/50/200, jusqu’à ±3), momentum MACD (±1), RSI (±1), force de tendance ADX/DI (±1) et cassure de Bollinger après compression (±2). Plus les indicateurs concordent, plus le signal est solide, mais aucun signal n’est fiable à 100 %. Garder la page ouverte pour les alertes. Analyse uniquement : aucun ordre n’est passé, et ce n’est pas un conseil financier.</p>
 </main>
 <script>
-var $=function(i){return document.getElementById(i)},ws,gen=0,C=[],H=[],ac,lastSig="";
+var $=function(i){return document.getElementById(i)},ws,gen=0,C=[],H=[],ac,lastSig="",ep=0,got=false;
 function ema(a,p){var k=2/(p+1),e=[a[0]];for(var i=1;i<a.length;i++)e[i]=a[i]*k+e[i-1]*(1-k);return e}
 function atr(h,l,c,p){var n=c.length,tr=[],a=[],s=0,i;
 for(i=0;i<n;i++){tr[i]=i?Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])):h[i]-l[i];a[i]=NaN}
@@ -124,15 +124,16 @@ try{if(navigator.vibrate)navigator.vibrate([200,100,200]);if(ac){var o=ac.create
 if(window.Notification&&Notification.permission==="granted")new Notification("Signal volatilité",{body:m})}catch(e){}}
 function refresh(first){var K=C.slice(0,-1);if(K.length<210){$("st").textContent="Pas assez de données";return}
 var r=analyze(K);render(r);if(!first&&r.sg!==lastSig&&r.sg!=="NEUTRE")alertSig(r);lastSig=r.sg}
-function connect(){var g=++gen;if(ws){try{ws.close()}catch(e){}}$("st").textContent="Connexion…";lastSig="";
-ws=new WebSocket("wss://ws.derivws.com/websockets/v3?app_id="+encodeURIComponent($("ap").value||"1089"));
+function connect(){var g=++gen;if(ws){try{ws.close()}catch(e){}}$("st").textContent="Connexion…";lastSig="";got=false;
+var U=["wss://api.derivws.com/trading/v1/options/ws/public","wss://ws.derivws.com/websockets/v3?app_id="+encodeURIComponent($("ap").value||"1089")];
+ws=new WebSocket(U[ep]);
 ws.onopen=function(){ws.send(JSON.stringify({ticks_history:$("sy").value,adjust_start_time:1,count:500,end:"latest",style:"candles",granularity:+$("tf").value,subscribe:1}))};
-ws.onmessage=function(m){if(g!==gen)return;var d=JSON.parse(m.data);
+ws.onmessage=function(m){if(g!==gen)return;var d=JSON.parse(m.data);got=true;
 if(d.error){$("st").textContent="Erreur : "+d.error.message;return}
 if(d.msg_type==="candles"){C=d.candles.map(function(x){return{t:x.epoch,h:+x.high,l:+x.low,c:+x.close}});$("st").textContent="🟢 En direct";refresh(true)}
 else if(d.msg_type==="ohlc"){var o=d.ohlc,t=+o.open_time,k={t:t,h:+o.high,l:+o.low,c:+o.close},n=C.length;$("px").textContent=f(k.c);
 if(n&&C[n-1].t===t)C[n-1]=k;else if(n&&t>C[n-1].t){C.push(k);if(C.length>600)C.shift();refresh(false)}}};
-ws.onclose=function(){if(g===gen){$("st").textContent="Déconnecté, reconnexion…";setTimeout(function(){if(g===gen)connect()},3000)}}}
+ws.onclose=function(){if(g===gen){if(!got)ep=1-ep;$("st").textContent="Déconnecté, reconnexion…";setTimeout(function(){if(g===gen)connect()},3000)}}}
 setInterval(function(){if(ws&&ws.readyState===1)ws.send('{"ping":1}')},30000);
 $("go").onclick=function(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(window.Notification&&Notification.permission==="default")Notification.requestPermission()}catch(e){}connect()};
 </script>
