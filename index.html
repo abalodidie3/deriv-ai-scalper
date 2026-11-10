@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Volatilité en direct</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--mu:#667085;--bd:#e3e6eb;--ok:#0a8f55;--ko:#d62f3a;--ac:#2f5bea;--wa:#c27a00;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--tx:#eef0f4;--mu:#98a2b3;--bd:#2a303c;--ok:#34d399;--ko:#f87171;--ac:#7c9cff;--wa:#fbbf24;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:560px;margin:0 auto;padding:16px}
+h1{font-size:1.25rem;margin:4px 0 12px}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+.r{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+label{flex:1;min-width:120px;font-size:.8rem;color:var(--mu)}
+select,input{width:100%;border:1px solid var(--bd);border-radius:8px;padding:8px;background:var(--bg);color:var(--tx);font-size:1rem}
+button{border:0;border-radius:10px;padding:11px;font-size:1rem;font-weight:600;background:var(--ac);color:#fff;width:100%}
+.sig{font-size:1.5rem;font-weight:800;margin:0}
+.p{font-size:1.1rem;font-weight:700}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.g div{background:var(--bg);border-radius:10px;padding:8px 10px}
+.g small{display:block;color:var(--mu);font-size:.75rem}
+.g b{font-size:1rem}
+.n{color:var(--mu);font-size:.8rem}
+#wn{color:var(--wa);font-size:.85rem;margin-top:8px}
+svg{width:100%;height:auto;display:block}
+li{margin:4px 0;font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<h1>📡 Volatilité en direct</h1>
+
+<div class="c">
+<div class="r">
+<label>Indice<select id="sy">
+<option value="R_10">Volatility 10</option><option value="R_25">Volatility 25</option><option value="R_50">Volatility 50</option><option value="R_75" selected>Volatility 75</option><option value="R_100">Volatility 100</option>
+<option value="1HZ10V">Volatility 10 (1s)</option><option value="1HZ25V">Volatility 25 (1s)</option><option value="1HZ50V">Volatility 50 (1s)</option><option value="1HZ75V">Volatility 75 (1s)</option><option value="1HZ100V">Volatility 100 (1s)</option>
+</select></label>
+<label>Unité de temps<select id="tf"><option value="60">M1</option><option value="300" selected>M5</option><option value="900">M15</option><option value="3600">H1</option></select></label>
+</div>
+<div class="r">
+<label>Score min. (sur 8)<input id="ms" type="number" min="2" max="7" value="4"></label>
+<label>Expansion si ATR ≥ ×<input id="er" type="number" step="0.1" value="1.5"></label>
+<label>Squeeze : % bas<input id="sp" type="number" value="20"></label>
+<label>app_id Deriv<input id="ap" type="text" value="1089"></label>
+</div>
+<button id="go">Démarrer / appliquer</button>
+<div class="n" id="st" style="margin-top:8px">Hors ligne</div>
+</div>
+
+<div class="c">
+<div class="n">Prix en direct</div><div class="p" id="px">–</div>
+<p class="n" style="margin:8px 0 0">Signal (dernière bougie clôturée)</p>
+<p class="sig" id="sg">–</p>
+<div id="wn"></div>
+<div class="g" id="gr"></div>
+</div>
+
+<div class="c"><svg id="ch" viewBox="0 0 320 150"></svg><div class="n">Clôture (bleu), EMA 50 (orange), EMA 200 (pointillé), bandes de Bollinger (gris).</div></div>
+
+<div class="c"><b>Historique des signaux</b><ul id="hi" style="padding-left:18px;margin:8px 0 0"></ul></div>
+
+<p class="n"><b>Méthode :</b> le score combine tendance (EMA 20/50/200, jusqu’à ±3), momentum MACD (±1), RSI (±1), force de tendance ADX/DI (±1) et cassure de Bollinger après compression (±2). Plus les indicateurs concordent, plus le signal est solide, mais aucun signal n’est fiable à 100 %. Garder la page ouverte pour les alertes. Analyse uniquement : aucun ordre n’est passé, et ce n’est pas un conseil financier.</p>
+</main>
+<script>
+var $=function(i){return document.getElementById(i)},ws,gen=0,C=[],H=[],ac,lastSig="";
+function ema(a,p){var k=2/(p+1),e=[a[0]];for(var i=1;i<a.length;i++)e[i]=a[i]*k+e[i-1]*(1-k);return e}
+function atr(h,l,c,p){var n=c.length,tr=[],a=[],s=0,i;
+for(i=0;i<n;i++){tr[i]=i?Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])):h[i]-l[i];a[i]=NaN}
+for(i=1;i<=p;i++)s+=tr[i];a[p]=s/p;for(i=p+1;i<n;i++)a[i]=(a[i-1]*(p-1)+tr[i])/p;return a}
+function rsi(c,p){var n=c.length,r=[],g=0,q=0,i,d;for(i=0;i<n;i++)r[i]=NaN;
+for(i=1;i<=p;i++){d=c[i]-c[i-1];if(d>0)g+=d;else q-=d}g/=p;q/=p;r[p]=q?100-100/(1+g/q):100;
+for(i=p+1;i<n;i++){d=c[i]-c[i-1];g=(g*(p-1)+(d>0?d:0))/p;q=(q*(p-1)+(d<0?-d:0))/p;r[i]=q?100-100/(1+g/q):100}return r}
+function bb(c,p,k){var n=c.length,m=[],u=[],l=[],i,j,s,v,mu,sd;
+for(i=0;i<n;i++){if(i<p-1){m[i]=u[i]=l[i]=NaN;continue}s=0;
+for(j=i-p+1;j<=i;j++)s+=c[j];mu=s/p;v=0;for(j=i-p+1;j<=i;j++)v+=(c[j]-mu)*(c[j]-mu);sd=Math.sqrt(v/p);
+m[i]=mu;u[i]=mu+k*sd;l[i]=mu-k*sd}return{m:m,u:u,l:l}}
+function adx(h,l,c,p){var n=c.length,i,u,d,tr=[],pd=[],md=[],pi=[],mi=[],dx=[],ax=[],sT=0,sP=0,sM=0,s=0;
+for(i=0;i<n;i++)ax[i]=pi[i]=mi[i]=NaN;
+for(i=1;i<n;i++){u=h[i]-h[i-1];d=l[i-1]-l[i];pd[i]=u>d&&u>0?u:0;md[i]=d>u&&d>0?d:0;tr[i]=Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1]))}
+for(i=1;i<=p;i++){sT+=tr[i];sP+=pd[i];sM+=md[i]}
+for(i=p;i<n;i++){if(i>p){sT+=tr[i]-sT/p;sP+=pd[i]-sP/p;sM+=md[i]-sM/p}
+pi[i]=100*sP/sT;mi[i]=100*sM/sT;dx[i]=100*Math.abs(pi[i]-mi[i])/((pi[i]+mi[i])||1)}
+for(i=p;i<2*p;i++)s+=dx[i];ax[2*p-1]=s/p;for(i=2*p;i<n;i++)ax[i]=(ax[i-1]*(p-1)+dx[i])/p;
+return{a:ax,p:pi,m:mi}}
+function analyze(K){var h=K.map(function(x){return x.h}),l=K.map(function(x){return x.l}),c=K.map(function(x){return x.c}),
+ER=parseFloat($("er").value)||1.5,SP=parseFloat($("sp").value)||20,MS=parseFloat($("ms").value)||4,
+A=atr(h,l,c,14),R=rsi(c,14),B=bb(c,20,2),X=adx(h,l,c,14),L=c.length-1,i,k,s=0;
+var e20=ema(c,20),e50=ema(c,50),e200=ema(c,200),a12=ema(c,12),a26=ema(c,26),ml=a12.map(function(v,j){return v-a26[j]}),sl=ema(ml,9);
+var hs=ml[L]-sl[L],hp=ml[L-1]-sl[L-1];
+for(i=L-49;i<=L;i++)s+=A[i];var ratio=A[L]/(s/50),W=100,bw=[];
+for(i=L-W+1;i<=L;i++)bw.push((B.u[i]-B.l[i])/B.m[i]);
+function rank(x){var q=0;for(var j=0;j<W;j++)if(bw[j]<x)q++;return 100*q/W}
+var rk=rank(bw[W-1]),rec=false;for(k=0;k<5;k++)if(rank(bw[W-1-k])<=SP){rec=true;break}
+var cl=c[L],ax=X.a[L];
+var tr=(cl>e50[L]?1:-1)+(e20[L]>e50[L]?1:-1)+(e50[L]>e200[L]?1:-1);
+var mc=hs>0?(hs>hp?1:0):(hs<hp?-1:0),rs=R[L]>50?1:-1,ad=ax>20?(X.p[L]>X.m[L]?1:-1):0,bo=0;
+if(rec&&cl>B.u[L])bo=2;if(rec&&cl<B.l[L])bo=-2;
+var S=tr+mc+rs+ad+bo,sg="NEUTRE",col="var(--mu)";
+if(S>=MS){sg=S>=MS+2?"ACHAT FORT":"ACHAT";col="var(--ok)"}
+else if(S<=-MS){sg=S<=-(MS+2)?"VENTE FORTE":"VENTE";col="var(--ko)"}
+var w=[];
+if(sg.indexOf("ACHAT")===0&&R[L]>75)w.push("RSI en surachat : risque de retour");
+if(sg.indexOf("VENTE")===0&&R[L]<25)w.push("RSI en survente : risque de rebond");
+if(sg!=="NEUTRE"&&ax<20)w.push("ADX faible : marché sans tendance, signal moins fiable");
+if(sg!=="NEUTRE"&&ratio<0.8)w.push("Volatilité faible : mouvement possiblement limité");
+return{sg:sg,col:col,S:S,tr:tr,ax:ax,hs:hs,rsi:R[L],A:A[L],ratio:ratio,rk:rk,rec:rec,cl:cl,w:w,B:B,c:c,e50:e50,e200:e200,L:L,
+st:ratio>=ER?"EXPANSION":(rk<=SP?"COMPRESSION":"NORMALE")}}
+function f(x){return x.toFixed(Math.abs(x)<10?4:2)}
+function render(r){var e=$("sg");e.textContent=r.sg;e.style.color=r.col;$("wn").innerHTML=r.w.map(function(x){return"⚠️ "+x}).join("<br>");
+var it=[["Score",(r.S>0?"+":"")+r.S+" / 8"],["Tendance EMA",r.tr>=2?"Haussière":r.tr<=-2?"Baissière":"Mixte"],
+["ADX",r.ax.toFixed(0)+(r.ax>25?" (forte)":r.ax>20?" (modérée)":" (faible)")],["MACD",r.hs>0?"Haussier":"Baissier"],
+["RSI",r.rsi.toFixed(1)],["Volatilité",r.st],["ATR",f(r.A)+" (×"+r.ratio.toFixed(2)+")"],["Bandes","rang "+r.rk.toFixed(0)+" %"]];
+if(r.sg!=="NEUTRE"){it.push(["Stop indicatif",f(1.5*r.A)+" pts"]);it.push(["Objectif indicatif",f(3*r.A)+" pts"])}
+$("gr").innerHTML=it.map(function(x){return"<div><small>"+x[0]+"</small><b>"+x[1]+"</b></div>"}).join("");
+var N=60,a=r.L-N+1,mn=1e99,mx=-1e99,i;for(i=a;i<=r.L;i++){mn=Math.min(mn,r.B.l[i],r.c[i]);mx=Math.max(mx,r.B.u[i],r.c[i])}
+function P(z){var s="";for(var i=a;i<=r.L;i++)s+=(5+(i-a)*310/(N-1)).toFixed(1)+","+Math.max(0,Math.min(150,145-(z[i]-mn)/(mx-mn||1)*140)).toFixed(1)+" ";return s}
+$("ch").innerHTML='<polyline points="'+P(r.B.u)+'" fill="none" stroke="var(--mu)" stroke-width=".8"/><polyline points="'+P(r.B.l)+'" fill="none" stroke="var(--mu)" stroke-width=".8"/><polyline points="'+P(r.e200)+'" fill="none" stroke="var(--tx)" stroke-dasharray="3 3"/><polyline points="'+P(r.e50)+'" fill="none" stroke="var(--wa)" stroke-width="1.5"/><polyline points="'+P(r.c)+'" fill="none" stroke="var(--ac)" stroke-width="2"/>'}
+function alertSig(r){var t=new Date().toLocaleTimeString(),m=$("sy").selectedOptions[0].text+" "+$("tf").selectedOptions[0].text+" : "+r.sg+" (score "+r.S+")";
+H.unshift(t+" – "+m);H=H.slice(0,10);$("hi").innerHTML=H.map(function(x){return"<li>"+x+"</li>"}).join("");
+try{if(navigator.vibrate)navigator.vibrate([200,100,200]);if(ac){var o=ac.createOscillator();o.connect(ac.destination);o.frequency.value=r.sg.indexOf("ACHAT")===0?880:440;o.start();o.stop(ac.currentTime+.3)}
+if(window.Notification&&Notification.permission==="granted")new Notification("Signal volatilité",{body:m})}catch(e){}}
+function refresh(first){var K=C.slice(0,-1);if(K.length<210){$("st").textContent="Pas assez de données";return}
+var r=analyze(K);render(r);if(!first&&r.sg!==lastSig&&r.sg!=="NEUTRE")alertSig(r);lastSig=r.sg}
+function connect(){var g=++gen;if(ws){try{ws.close()}catch(e){}}$("st").textContent="Connexion…";lastSig="";
+ws=new WebSocket("wss://ws.derivws.com/websockets/v3?app_id="+encodeURIComponent($("ap").value||"1089"));
+ws.onopen=function(){ws.send(JSON.stringify({ticks_history:$("sy").value,adjust_start_time:1,count:500,end:"latest",style:"candles",granularity:+$("tf").value,subscribe:1}))};
+ws.onmessage=function(m){if(g!==gen)return;var d=JSON.parse(m.data);
+if(d.error){$("st").textContent="Erreur : "+d.error.message;return}
+if(d.msg_type==="candles"){C=d.candles.map(function(x){return{t:x.epoch,h:+x.high,l:+x.low,c:+x.close}});$("st").textContent="🟢 En direct";refresh(true)}
+else if(d.msg_type==="ohlc"){var o=d.ohlc,t=+o.open_time,k={t:t,h:+o.high,l:+o.low,c:+o.close},n=C.length;$("px").textContent=f(k.c);
+if(n&&C[n-1].t===t)C[n-1]=k;else if(n&&t>C[n-1].t){C.push(k);if(C.length>600)C.shift();refresh(false)}}};
+ws.onclose=function(){if(g===gen){$("st").textContent="Déconnecté, reconnexion…";setTimeout(function(){if(g===gen)connect()},3000)}}}
+setInterval(function(){if(ws&&ws.readyState===1)ws.send('{"ping":1}')},30000);
+$("go").onclick=function(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(window.Notification&&Notification.permission==="default")Notification.requestPermission()}catch(e){}connect()};
+</script>
+</body>
+</html>
